@@ -140,6 +140,14 @@ def test_topic_search_without_relevant_sources_returns_empty():
     assert filter_relevant_results("企业知识库升级", results) == []
 
 
+def test_guest_claim_search_does_not_keep_unrelated_sources():
+    results = [
+        {"title": "Java 在线编译器", "body": "编程工具", "url": "https://example.com/java"},
+        {"title": "企业知识库升级实践", "body": "知识检索效率与权限管理", "url": "https://example.com/kb"},
+    ]
+    assert [item["url"] for item in filter_relevant_results("企业知识库升级可提升检索效率", results)] == ["https://example.com/kb"]
+
+
 def test_argument_claims_only_output_is_coerced_to_summary():
     result = _coerce_node_result(
         "benefit_argument",

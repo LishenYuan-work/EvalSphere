@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from app.core.config import settings
 from app.core.sse_manager import sse_manager
-from app.core.web_search import search_web
+from app.core.web_search import filter_relevant_results, search_web
 from app.services.document_service import extract_document_text
 from app.services.llm_service import structured
 from app.services.review_service import (
@@ -258,7 +258,11 @@ class GuestReviewStore:
             if not claim.strip():
                 continue
             try:
-                results = await asyncio.to_thread(search_web, claim[:180], 3)
+                raw_results = await asyncio.to_thread(search_web, claim[:180], 3)
+                # Search providers can return unrelated pages for broad or
+                # Chinese natural-language claims. Never expose those pages
+                # as evidence in the guest experience.
+                results = filter_relevant_results(claim, raw_results)
                 verdict, rationale = await _classify_claim(claim, results)
             except Exception:
                 verdict, rationale, results = "uncertain", "游客模式核查失败，保留不确定性。", []
