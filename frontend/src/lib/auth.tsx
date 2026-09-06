@@ -49,10 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
   async function login(email: string, password: string) {
     if (supabase) {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw new Error(error.message.includes("Email not confirmed") ? "邮箱尚未验证，请先完成邮箱验证" : error.message);
-      if (!data.session) throw new Error("登录未建立有效会话");
-      const result = await api.auth.supabaseExchange({ access_token: data.session.access_token });
+      const result = await api.auth.supabaseLogin({ email, password, remember_me: true });
       setUser(result.user);
       return;
     }

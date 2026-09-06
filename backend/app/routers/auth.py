@@ -16,7 +16,7 @@ from app.db.models import EmailToken, Organization, OrganizationInvite, Organiza
 from app.dependencies import GuestUser, require_user
 from app.models.schemas import CreateOrganizationRequest, EmailRequest, InviteMemberRequest, LoginRequest, MemberItem, OrganizationSummary, RefreshRequest, RegisterRequest, ResetPasswordRequest, SupabaseExchangeRequest, TokenRequest, TokenResponse, UserProfile
 from app.services.email_service import EmailDeliveryError, send_email
-from app.services.supabase_auth import SupabaseAuthError, get_user as get_supabase_user
+from app.services.supabase_auth import SupabaseAuthError, get_user as get_supabase_user, sign_in as supabase_sign_in
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 org_router = APIRouter(prefix="/api/organizations", tags=["organizations"])
@@ -233,6 +233,27 @@ async def exchange_supabase_session(req: SupabaseExchangeRequest, response: Resp
     access, refresh = create_access_token(user.id, token_version=user.token_version), create_refresh_token(user.id, token_version=user.token_version)
     _set_auth_cookies(response, access, refresh)
     return _profile_response(user, memberships)
+
+
+@router.post("/supabase/login", response_model=TokenResponse)
+async def supabase_login(req: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+    """Proxy Supabase password login so browsers do not depend on Supabase CORS/TLS."""
+    try:
+        session = await asyncio.to_thread(supabase_sign_in, str(req.email).lower(), req.password)
+    except SupabaseAuthError as exc:
+        message = str(exc)
+        if message in {"Invalid login credentials", "invalid_credentials"}:
+            raise HTTPException(401, "邮箱或密码错误") from exc
+        if "Email not confirmed" in message:
+            raise HTTPException(403, "邮箱尚未验证，请先完成 Supabase 邮箱验证") from exc
+        raise HTTPException(502, "Supabase 登录服务暂时不可用，请稍后重试") from exc
+    access_token = session.get("access_token")
+    if not isinstance(access_token, str):
+        raise HTTPException(502, "Supabase 未返回有效登录会话")
+    # Reuse the existing exchange path to keep profile/organization behavior identical.
+    return await exchange_supabase_session(
+        SupabaseExchangeRequest(access_token=access_token), response, db
+    )
 
 
 @router.post("/verify-email")
