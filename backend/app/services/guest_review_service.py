@@ -176,8 +176,14 @@ class GuestReviewStore:
                 chunks.append(chunk)
                 await self.emit(review, "agent_chunk", {"agent": agent, "round": round_num, "content": chunk})
 
-            result = _coerce_node_result(agent, await structured(messages, fallback, on_chunk=on_chunk))
-            _validate_node_result(agent, result)
+            try:
+                result = _coerce_node_result(agent, await structured(messages, fallback, on_chunk=on_chunk))
+                _validate_node_result(agent, result)
+            except ValueError:
+                # Keep guest mode consistent with authenticated reviews when a
+                # provider returns a schema variant or malformed JSON.
+                result = _coerce_node_result(agent, fallback)
+                _validate_node_result(agent, result)
             return result
 
         try:

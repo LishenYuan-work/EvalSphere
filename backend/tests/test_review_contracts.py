@@ -157,6 +157,23 @@ def test_argument_claims_only_output_is_coerced_to_summary():
     assert result["summary"].startswith("收益论据：")
 
 
+def test_argument_schema_aliases_are_coerced_to_persisted_contract():
+    result = _coerce_node_result(
+        "risk_argument",
+        {"analysis": "需要审慎评估实施条件", "arguments": [{"text": "实施依赖额外预算"}, "存在交付约束"]},
+    )
+    _validate_node_result("risk_argument", result)
+    assert result["summary"] == "需要审慎评估实施条件"
+    assert [item["claim"] for item in result["claims"]] == ["实施依赖额外预算", "存在交付约束"]
+
+
+def test_argument_string_alias_is_coerced_to_single_claim():
+    result = _coerce_node_result("benefit_argument", {"content": "可减少重复人工操作", "points": "提升处理效率"})
+    _validate_node_result("benefit_argument", result)
+    assert result["summary"] == "可减少重复人工操作"
+    assert result["claims"] == [{"claim": "提升处理效率"}]
+
+
 def test_summary_report_alias_is_coerced_to_markdown():
     result = _coerce_node_result("summary_report", {"report": "## 方案概述\n内容"})
     _validate_node_result("summary_report", result)

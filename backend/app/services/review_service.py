@@ -71,12 +71,13 @@ async def run_node(db, session: ReviewSession, node_name: str, messages: list[di
         try:
             result = _coerce_node_result(node_name, await structured(messages, fallback, on_chunk=on_chunk))
             _validate_node_result(node_name, result)
-        except Exception:
-            # A report assembled from persisted outputs and evidence is safer
-            # than failing after all argument and fact-check stages completed.
-            if node_name != "summary_report" or not isinstance(fallback.get("markdown"), str) or not fallback["markdown"].strip():
-                raise
-            result = fallback
+        except ValueError:
+            # Providers occasionally return a valid JSON object with a schema
+            # variant (for example `arguments` instead of `claims`).  Keep the
+            # review executable using the explicit, conservative stage fallback
+            # after the structured client has already retried once.
+            result = _coerce_node_result(node_name, fallback)
+            _validate_node_result(node_name, result)
             fallback_used = True
         await flush_chunks()
         db.add(ReviewTrace(session_id=session.id, node_name=node_name, duration_ms=int((time.perf_counter() - started) * 1000), prompt_tokens=sum(len(message.get("content", "")) for message in messages) // 4, completion_tokens=len(json.dumps(result, ensure_ascii=False)) // 4, model=settings.deepseek_model, status="fallback" if fallback_used else "completed", error_message="模型报告格式无效，已使用持久化证据生成兜底报告" if fallback_used else None))
@@ -90,6 +91,8 @@ async def run_node(db, session: ReviewSession, node_name: str, messages: list[di
 
 
 def _validate_node_result(node_name: str, result: dict) -> None:
+    if not isinstance(result, dict):
+        raise ValueError(f"{node_name} 必须返回 JSON 对象")
     if node_name == "summary_report":
         if not isinstance(result.get("markdown"), str) or not result["markdown"].strip():
             raise ValueError("汇总 Agent 未返回 markdown 报告")
@@ -121,14 +124,44 @@ def _coerce_node_result(node_name: str, result: dict) -> dict:
                     break
         return normalized
     if node_name in {"benefit_argument", "risk_argument"}:
-        summary = normalized.get("summary")
+        # Accept common OpenAI-compatible structured-output aliases while
+        # keeping the persisted contract stable for downstream fact checking.
         claims = normalized.get("claims")
-        if (not isinstance(summary, str) or not summary.strip()) and isinstance(claims, list):
-            claim_lines = []
+        if claims is None:
+            for key in ("arguments", "points", "items", "evidence", "论据", "观点"):
+                if key in normalized:
+                    claims = normalized[key]
+                    break
+        if isinstance(claims, str):
+            claims = [claims]
+        elif isinstance(claims, dict):
+            claims = list(claims.values())
+        if isinstance(claims, list):
+            normalized["claims"] = []
             for claim in claims:
-                value = claim.get("claim") if isinstance(claim, dict) else claim
+                if isinstance(claim, dict):
+                    value = claim.get("claim")
+                    if not isinstance(value, str) or not value.strip():
+                        for key in ("argument", "text", "content", "statement", "point", "观点", "论据"):
+                            if isinstance(claim.get(key), str) and claim[key].strip():
+                                value = claim[key]
+                                break
+                    if isinstance(value, str) and value.strip():
+                        normalized["claims"].append({**claim, "claim": value.strip()})
+                elif isinstance(claim, str) and claim.strip():
+                    normalized["claims"].append({"claim": claim.strip()})
+        else:
+            normalized["claims"] = []
+        summary = normalized.get("summary")
+        if not isinstance(summary, str) or not summary.strip():
+            for key in ("overview", "analysis", "conclusion", "text", "content", "分析", "结论"):
+                value = normalized.get(key)
                 if isinstance(value, str) and value.strip():
-                    claim_lines.append(value.strip())
+                    normalized["summary"] = value.strip()
+                    summary = normalized["summary"]
+                    break
+        if not isinstance(summary, str) or not summary.strip():
+            claim_lines = [item["claim"] for item in normalized["claims"] if item.get("claim")]
             if claim_lines:
                 label = "收益论据" if node_name == "benefit_argument" else "风险论据"
                 normalized["summary"] = f"{label}：" + "；".join(claim_lines[:12])
