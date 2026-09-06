@@ -242,9 +242,10 @@ async def supabase_login(req: LoginRequest, response: Response, db: AsyncSession
         session = await asyncio.to_thread(supabase_sign_in, str(req.email).lower(), req.password)
     except SupabaseAuthError as exc:
         message = str(exc)
-        if message in {"Invalid login credentials", "invalid_credentials"}:
+        normalized = message.strip().lower().replace("-", "_")
+        if normalized in {"invalid login credentials", "invalid_credentials", "invalid_grant"} or "invalid login" in normalized:
             raise HTTPException(401, "邮箱或密码错误") from exc
-        if "Email not confirmed" in message:
+        if "email not confirmed" in normalized or "email_not_confirmed" in normalized:
             raise HTTPException(403, "邮箱尚未验证，请先完成 Supabase 邮箱验证") from exc
         raise HTTPException(502, "Supabase 登录服务暂时不可用，请稍后重试") from exc
     access_token = session.get("access_token")
