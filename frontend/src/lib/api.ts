@@ -5,7 +5,13 @@
 // Every client path below includes its own `/api` prefix, so normalize the
 // environment value to prevent production requests such as `/api/api/...`.
 const configuredBase = process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, "").replace(/\/api$/, "");
-const BASE = (configuredBase || (
+// The Render service was renamed; keep stale Vercel variables from routing
+// production traffic through the retired service alias.
+const canonicalBase = configuredBase?.replace(
+  /^https:\/\/review-platform-api\.onrender\.com$/i,
+  "https://1-0plp.onrender.com",
+);
+const BASE = (canonicalBase || (
   process.env.NODE_ENV === "production"
     ? "https://1-0plp.onrender.com"
     : "http://localhost:8000"
