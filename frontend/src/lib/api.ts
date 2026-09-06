@@ -65,6 +65,12 @@ function formatApiError(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+let runtimeToken: string | null = null;
+
+export function setAuthToken(token: string | null) {
+  runtimeToken = token;
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -73,6 +79,7 @@ async function request<T>(
 ): Promise<T> {
   const headers: Record<string, string> = {};
   if (org) headers["X-Organization-ID"] = org;
+  if (runtimeToken) headers.Authorization = `Bearer ${runtimeToken}`;
   if (typeof document !== "undefined" && !["GET", "HEAD", "OPTIONS"].includes(method)) {
     let csrf = document.cookie
       .split(";")
@@ -244,7 +251,7 @@ export const api = {
 };
 
 export function authToken() {
-  return null;
+  return runtimeToken;
 }
 export function apiBase() {
   return BASE;

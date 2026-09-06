@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useContext, useEffect, useState } from "react";
-import { api, type UserProfile } from "./api";
+import { api, setAuthToken, type UserProfile } from "./api";
 import { supabase } from "./supabase";
 
 type AuthState = { user: UserProfile | null; loading: boolean; login: (email: string, password: string) => Promise<void>; register: (data: Parameters<typeof api.auth.register>[0]) => Promise<void>; guestLogin: () => Promise<void>; logout: () => void; };
@@ -73,8 +73,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const result = await api.auth.register(data); if (!result.user.email_verified) throw new Error("注册成功，请先验证邮箱后再登录。验证链接已发送到您的邮箱。"); setUser(result.user);
   }
-  async function guestLogin() { const result = await api.auth.guest(); setUser(result.user); }
-  function logout() { if (user?.is_guest) { api.auth.logout().catch(() => undefined); } else { void supabase?.auth.signOut(); api.auth.logout().catch(() => undefined); } setUser(null); }
+  async function guestLogin() { const result = await api.auth.guest(); setAuthToken(result.access_token || null); setUser(result.user); }
+  function logout() { setAuthToken(null); if (user?.is_guest) { api.auth.logout().catch(() => undefined); } else { void supabase?.auth.signOut(); api.auth.logout().catch(() => undefined); } setUser(null); }
   return <Context.Provider value={{ user, loading, login, register, guestLogin, logout }}>{children}</Context.Provider>;
 }
 export const useAuth = () => useContext(Context);

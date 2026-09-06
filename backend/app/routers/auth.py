@@ -22,19 +22,25 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 org_router = APIRouter(prefix="/api/organizations", tags=["organizations"])
 
 
+def _cross_site_cookie_options() -> tuple[bool, str]:
+    """Use cross-site cookies when the API and frontend are separately hosted."""
+    cross_site = settings.app_env.lower() == "production" or settings.frontend_url.lower().startswith("https://")
+    return cross_site, "none" if cross_site else "lax"
+
+
 @router.post("/guest", response_model=TokenResponse)
 async def guest_login(response: Response):
     """Create a short-lived signed visitor session without a database user."""
     guest_id = f"guest:{secrets.token_urlsafe(18)}"
     access = create_guest_access_token(guest_id)
-    secure = settings.app_env.lower() == "production"
+    secure, samesite = _cross_site_cookie_options()
     response.set_cookie(
         "review_access", access, httponly=True, secure=secure,
-        samesite="none" if secure else "lax", max_age=settings.guest_session_minutes * 60, path="/",
+        samesite=samesite, max_age=settings.guest_session_minutes * 60, path="/",
     )
     response.set_cookie(
         "review_csrf", secrets.token_urlsafe(32), httponly=False, secure=secure,
-        samesite="none" if secure else "lax", max_age=settings.guest_session_minutes * 60, path="/",
+        samesite=samesite, max_age=settings.guest_session_minutes * 60, path="/",
     )
     return TokenResponse(
         access_token=access,
@@ -57,13 +63,13 @@ async def csrf_token(request: Request, response: Response):
     token = request.cookies.get("review_csrf")
     if not token:
         token = secrets.token_urlsafe(32)
-        secure = settings.app_env.lower() == "production"
+        secure, samesite = _cross_site_cookie_options()
         response.set_cookie(
             "review_csrf",
             token,
             httponly=False,
             secure=secure,
-            samesite="none" if secure else "lax",
+            samesite=samesite,
             max_age=settings.refresh_token_days * 86400,
             path="/",
         )
@@ -81,11 +87,11 @@ def _profile_response(user: Profile, memberships: list[OrganizationMember]) -> T
 
 
 def _set_auth_cookies(response: Response, access: str, refresh: str, *, remember_me: bool = False) -> None:
-    secure = settings.app_env.lower() == "production"
+    secure, samesite = _cross_site_cookie_options()
     access_max_age = (settings.refresh_token_days * 24 * 60 if remember_me else settings.access_token_minutes) * 60
-    response.set_cookie("review_access", access, httponly=True, secure=secure, samesite="none" if secure else "lax", max_age=access_max_age, path="/")
-    response.set_cookie("review_refresh", refresh, httponly=True, secure=secure, samesite="none" if secure else "lax", max_age=settings.refresh_token_days * 86400, path="/api/auth")
-    response.set_cookie("review_csrf", secrets.token_urlsafe(32), httponly=False, secure=secure, samesite="none" if secure else "lax", max_age=settings.refresh_token_days * 86400, path="/")
+    response.set_cookie("review_access", access, httponly=True, secure=secure, samesite=samesite, max_age=access_max_age, path="/")
+    response.set_cookie("review_refresh", refresh, httponly=True, secure=secure, samesite=samesite, max_age=settings.refresh_token_days * 86400, path="/api/auth")
+    response.set_cookie("review_csrf", secrets.token_urlsafe(32), httponly=False, secure=secure, samesite=samesite, max_age=settings.refresh_token_days * 86400, path="/")
 
 
 async def _load_memberships(db: AsyncSession, user_id: str) -> list[OrganizationMember]:
